@@ -6,6 +6,9 @@ SERVICE_EXAMPLE=./examples/service
 
 OUTPUT_DIR=./charts
 
+# Default version (can be overridden by passing VERSION=<value> to make)
+VERSION ?= 0.1.0
+
 .PHONY: all
 all: help
 
@@ -30,7 +33,7 @@ template-service:
 .PHONY: package-common
 package-common:
 	mkdir -p $(OUTPUT_DIR)
-	helm package $(COMMON_CHART) --destination $(OUTPUT_DIR)
+	helm package $(COMMON_CHART) --version $(VERSION) --destination $(OUTPUT_DIR)
 
 .PHONY: update-deps-job
 update-deps-job:
