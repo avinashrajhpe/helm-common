@@ -1,0 +1,17 @@
+# (c) Copyright 2024 Hewlett Packard Enterprise Development LP
+
+name: Dependabot Auto Merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  dependabot-automerge:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - name: Dependabot Automerge
+        uses: hpe-actions/dependabot-automerge@v0.0.7

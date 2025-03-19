@@ -1,0 +1,292 @@
+# Overrides default application name when set to a non-empty value
+nameOverride: ""
+
+# Settings common to all container images
+image:
+  tag: latest
+
+imagePullSecrets: []
+
+serviceAccount:
+  # Specifies whether or not a service account is created
+  create: true
+  # Specifies whether or not pods use the service account
+  use: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  name: "vault-auth-dsccservice"
+
+# Settings for the service account token volume
+saVolume:
+  - name: sa-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            path: token
+        - configMap:
+            items:
+              - key: ca.crt
+                path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+
+# Settings for the service account token volume mount
+saVolumeMounts:
+  - name: sa-token
+    mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+
+service:
+  ssobroker:
+    type: ClusterIP
+    # These ports are defined in the smesh service index design
+    # https://github.hpe.com/cloud/storage-design/blob/master/docs/smesh-services.md
+    grpcPort: &grpcPort 5060
+    grpcPrivatePort: &grpcPrivatePort 5061
+    restPort: &restPort 8080
+    metricsPort: &metricsPort 8001
+
+# Common values that are reused across services
+common:
+  pod:
+    annotations:
+      istio: &istioAnnotations
+        proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+        # Reduce default resource requests
+        # Based on https://confluence.eng.nimblestorage.com/pages/viewpage.action?pageId=171008560
+        sidecar.istio.io/proxyCPU: 10m
+        sidecar.istio.io/proxyMemory: 200Mi
+      prometheus: &prometheusAnnotations
+        prometheus.io/scrape: "true"
+        prometheus.io/path: &metricsURLPath /metrics
+        prometheus.io/port: "8001"
+      # vault: &vaultAnnotations
+      #   vault.hashicorp.com/agent-service-account-token-volume-name: sa-token
+      #   vault.hashicorp.com/agent-inject: "true"
+      #   vault.hashicorp.com/agent-init-first: "true"
+      #   vault.hashicorp.com/agent-inject-status: "update"
+      #   vault.hashicorp.com/log-level: "debug"
+      #   vault.hashicorp.com/agent-requests-cpu: 10m
+      #   vault.hashicorp.com/agent-requests-memory: 16Mi
+      #   vault.hashicorp.com/agent-limits-cpu: 100m
+      #   vault.hashicorp.com/role: "dsccservice"
+      # postgresSecret: &postgresSecretAnnotations
+      #   vault.hashicorp.com/agent-inject-secret-database.toml: "storagecentral/app/dsccservice/postgres"
+      #   vault.hashicorp.com/agent-inject-template-database.toml: |
+      #     {{- with secret "storagecentral/app/dsccservice/postgres" -}}
+      #     [database]
+      #     username = "{{ .Data.username }}"
+      #     password ="{{ .Data.password }}"
+      #     {{- end -}}
+      # keycloakSecret: &keycloakSecretAnnotations
+      #   vault.hashicorp.com/agent-inject-secret-keycloak.toml: "storagecentral/app/dsccservice/keycloak"
+      #   vault.hashicorp.com/agent-inject-template-keycloak.toml: |
+      #     {{- with secret "storagecentral/app/dsccservice/keycloak" -}}
+      #     [keycloak]
+      #     service_client_id = "{{ .Data.service_client_id }}"
+      #     service_client_secret ="{{ .Data.service_client_secret }}"
+      #     {{- end -}}
+      # ccsauthSecret: &ccsauthSecretAnnotations
+      #   vault.hashicorp.com/agent-inject-secret-clientinfo.toml: "storagecentral/app/dsccservice/clientinfo"
+      #   vault.hashicorp.com/agent-inject-template-clientinfo.toml: |
+      #     {{- with secret "storagecentral/app/dsccservice/clientinfo" -}}
+      #     [ccsauth]
+      #     CCSAUTH_SSOBROKER_CLIENT_ID = "{{ .Data.CCSAUTH_SSOBROKER_CLIENT_ID }}"
+      #     CCSAUTH_SSO_BROKER_CLIENT_SECRET ="{{ .Data.CCSAUTH_SSO_BROKER_CLIENT_SECRET }}"
+      #     {{- end -}}
+    securityContext: &podSecurityContext
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile:
+        type: RuntimeDefault
+    automountServiceAccountToken: false
+  container:
+    securityContext: &securityContext
+      capabilities:
+        drop:
+          - ALL
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+  config:
+    logging: &loggingEnv
+      level: info
+    database: &databaseEnv
+      port: 5432
+      name: sso_broker
+      sslmode: verify-full
+    metrics: &metricsEnv
+      port: *metricsPort
+      path: *metricsURLPath
+    grpc: &grpcEnv
+      port: *grpcPort
+    grpcPrivate: &grpcPrivateEnv
+      port: *grpcPrivatePort
+    rest: &restEnv
+      port: *restPort
+    tracing:
+      service: dsccservice
+      otlptracehttpendpoint: jaeger-collector.istio-system.svc.cluster.local:4318
+    telemetry:
+      enabled: true
+    keycloak:
+      url: http://dsccservice-keycloak:80
+      api_relative_path: /data-services/v1beta1/dsccservice
+      custom_authenticator_enabled: "true" # Quoted as string
+    authz:
+      endpoint: grpc.authz.svc.cluster.local:5100
+      secretsImplicitPermissionID: 7663617d-a9bb-4073-a250-c3e97bd675c1
+    secrets:
+      endpoint: grpc.secrets.svc.cluster.local:5100
+  env:
+    dbMigrate:
+      CONFIG_FILES: "/vault/secrets/database.toml"
+      CONFIG_VOLUMES: "/etc/app-config,/etc/ops-config"
+    grpc:
+      CONFIG_FILES: "/vault/secrets/database.toml,/vault/secrets/keycloak.toml,/vault/secrets/clientinfo.toml"
+      CONFIG_VOLUMES: "/etc/app-config,/etc/ops-config,/etc/onboard-config"
+
+#
+# sso broker grpc service values
+grpc:
+  enabled: true
+  # Pod disruption budget values
+  pdbName: grpc
+  pdb:
+    enabled: true
+    maxUnavailable: 0
+
+  # Number of pod replicas if autoscaling is disabled
+  replicaCount: 3
+  # Horizontal pod autoscaler values
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 1
+    targetCPUAverageValue: 80
+    targetMemoryAverageValue: 80
+  pod:
+    # Pod annotations
+    annotations:
+      <<: *istioAnnotations
+      # <<: *vaultAnnotations
+      # <<: *postgresSecretAnnotations
+      # <<: *prometheusAnnotations
+      # <<: *keycloakSecretAnnotations
+      # <<: *ccsauthSecretAnnotations
+    # Pod security context
+    securityContext: *podSecurityContext
+  container:
+    # Service container image
+    image:
+      name: "dsccjob"
+      pullPolicy: Never
+    # Service container security context
+    securityContext:
+      <<: *securityContext
+    # Service container resource requests and limits
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    #  Service container liveness probe
+    liveness:
+      httpGet:
+        path: /healthz
+        port: *restPort
+        httpHeaders:
+          - name: X-B3-SpanId
+            value: 0123456789abcdef
+          - name: X-B3-TraceId
+            value: 0123456789abcdef0123456789abcdef
+      initialDelaySeconds: 10
+      timeoutSeconds: 5
+      periodSeconds: 15
+      successThreshold: 1
+      failureThreshold: 5
+    #  Service container readiness probe
+    readiness:
+      httpGet:
+        path: /readyz
+        port: *restPort
+        httpHeaders:
+          - name: X-B3-SpanId
+            value: 0123456789abcdef
+          - name: X-B3-TraceId
+            value: 0123456789abcdef0123456789abcdef
+      initialDelaySeconds: 10
+      timeoutSeconds: 5
+      periodSeconds: 15
+      successThreshold: 1
+      failureThreshold: 5
+
+  # Environment variables
+  env:
+    <<: *loggingEnv
+    <<: *databaseEnv
+    <<: *metricsEnv
+    <<: *restEnv
+    <<: *grpcEnv
+    <<: *grpcPrivateEnv
+    access_token_lifespan: 900
+
+#  dsccservice-db-migrate job values
+dbMigrate:
+  enabled: true
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  pod:
+    annotations:
+      <<: *istioAnnotations
+      # <<: *vaultAnnotations
+      #vault.hashicorp.com/agent-pre-populate-only: "true"
+      #<<: *postgresSecretAnnotations
+    # Pod security context
+    securityContext: *podSecurityContext
+  container:
+    image:
+      name: dsccservice-db-migrate
+      repository: dsccjob
+      pullPolicy: Always
+    securityContext:
+      <<: *securityContext
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  env:
+    <<: *loggingEnv
+    <<: *databaseEnv
+    <<: *metricsEnv
+    <<: *grpcEnv
+    <<: *grpcPrivateEnv
+
+#
+# Values to control the init container that waits for db-migrate job to complete
+dbMigrateWait:
+  enabled: true
+  image:
+    name: kubectl
+    repository: local
+    pullPolicy: Never
+    tag: 1.20-debian-10
+  resources:
+    limits:
+      cpu: "100m"
+      memory: 128Mi
+    requests:
+      cpu: "100m"
+      memory: 128Mi
+  securityContext:
+    <<: *securityContext

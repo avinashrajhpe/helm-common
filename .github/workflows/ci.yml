@@ -1,0 +1,47 @@
+# Copyright 2024 Hewlett Packard Enterprise Development LP
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  actions: read # permission to read other github actions
+  contents: write # contents needed for compliance
+  id-token: write # id-token needed for hpe-hcss/github-oidc-app. This authenticates the runner to AWS ECR.
+  packages: read # packages needed to read the build container
+  pull-requests: write # needed for compliance
+
+concurrency:
+  # Only allows one build per workflow & branch/PR/tag
+  # cancels in-progress builds for that branch/PR/tag if a new one is submitted.
+  # https://docs.github.com/en/actions/using-jobs/using-concurrency
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compliance:
+    permissions: # required these permissions if you set the input `copyright_auto_fix: true`
+      contents: write
+      id-token: write
+      pull-requests: write
+    # for docs on configuring the secrets-scanner visit its repo https://github.com/hpe-actions/secrets-scanner/
+    # for docs on configuring the copyright tool visit its repo https://github.com/hpe-actions/copyright/
+    uses: hpe-cds/reusable-workflows/.github/workflows/ci-compliance.yml@main
+    secrets: inherit
+    with:
+       copyright_auto_fix: true
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v4
+      # Setup Env
+      - run: make package

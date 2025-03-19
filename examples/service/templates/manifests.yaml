@@ -1,0 +1,13 @@
+{{- include "common.service.autoscaler" . }}
+---
+{{- include "common.service.configmap" . }}
+---
+{{- include "common.service.deployment" . }}
+---
+{{- include "common.service.grpc.private.service" . }}
+---
+{{- include "common.service.grpc.service" . }}
+---
+{{- include "common.service.pdb" . }}
+---
+{{- include "common.service.serviceaccount" . }}

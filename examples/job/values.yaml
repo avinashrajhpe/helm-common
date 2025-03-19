@@ -1,0 +1,130 @@
+# Overrides default application name when set to a non-empty value
+nameOverride: ""
+image:
+  tag: development
+
+serviceAccount:
+  # Specifies whether or not a service account is created
+  create: true
+  # Specifies whether or not pods use the service account
+  use: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  name: "vault-auth-dsccjob"
+
+# Settings for the service account token volume
+saVolume:
+  - name: sa-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            path: token
+        - configMap:
+            items:
+              - key: ca.crt
+                path: ca.crt
+            name: kube-root-ca.crt
+        - downwardAPI:
+            items:
+              - fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+                path: namespace
+
+# Settings for the service account token volume mount
+saVolumeMounts:
+  - name: sa-token
+    mountPath: "/var/run/secrets/kubernetes.io/serviceaccount"
+
+
+# Common values that are reused across services
+common:
+  pod:
+    annotations:
+      # postgresSecret: &postgresSecretAnnotations
+      #   vault.hashicorp.com/agent-inject-secret-database.toml: "storagecentral/app/dsccjob/postgres"
+      #   vault.hashicorp.com/agent-inject-template-database.toml: |
+      #     {{- with secret "storagecentral/app/dsccjob/postgres" -}}
+      #     [database]
+      #     username = "{{ .Data.username }}"
+      #     password ="{{ .Data.password }}"
+      #     {{- end -}}
+      # keycloakSecret: &keycloakSecretAnnotations
+      #   vault.hashicorp.com/agent-inject-secret-keycloak.toml: "storagecentral/app/dsccjob/keycloak"
+      #   vault.hashicorp.com/agent-inject-template-keycloak.toml: |
+      #     {{- with secret "storagecentral/app/dsccjob/keycloak" -}}
+      #     [keycloak]
+      #     service_client_id = "{{ .Data.service_client_id }}"
+      #     service_client_secret ="{{ .Data.service_client_secret }}"
+      #     {{- end -}}
+    securityContext: &podSecurityContext
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      seccompProfile:
+        type: RuntimeDefault
+    automountServiceAccountToken: false
+config:
+  logging: &loggingEnv
+    level: info
+  database: &databaseEnv
+    port: 5432
+    name: sso_broker
+    sslmode: verify-full
+  keycloak:
+    url: http://dsccjob-keycloak:80
+    api_relative_path: /data-services/v1beta1/dsccjob
+  retry:
+    max_retries: 3
+    base_delay: 10
+    backoff_factor: 2
+
+# auth enabler job values
+authEnabler:
+  enabled: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  pod:
+    annotations:
+      proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+      # Reduce default resource requests
+      # Based on https://confluence.eng.nimblestorage.com/pages/viewpage.action?pageId=171008560
+      sidecar.istio.io/proxyCPU: 10m
+      sidecar.istio.io/proxyMemory: 200Mi
+      # vault.hashicorp.com/agent-service-account-token-volume-name: sa-token
+      # vault.hashicorp.com/agent-init-first: 'true'
+      # vault.hashicorp.com/agent-inject: "true"
+      # vault.hashicorp.com/agent-inject-status: update
+      # vault.hashicorp.com/agent-inject-secret-token: auth/token/lookup-self
+      # vault.hashicorp.com/log-level: debug
+      # vault.hashicorp.com/agent-pre-populate-only: 'true'
+      # vault.hashicorp.com/agent-requests-memory: 16Mi
+      # vault.hashicorp.com/role: dsccjob
+      # <<: *postgresSecretAnnotations
+      # <<: *keycloakSecretAnnotations
+    # Pod security context
+    securityContext: *podSecurityContext
+  container:
+    image:
+      name: dsccjob
+      repository: local
+      pullPolicy: Always
+    securityContext:
+      capabilities:
+        drop:
+          - ALL
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  env:
+    CONFIG_FILES: "/vault/secrets/database.toml,/vault/secrets/keycloak.toml"
+    CONFIG_VOLUMES: "/etc/app-config,/etc/ops-config"
+    <<: *loggingEnv
+    <<: *databaseEnv

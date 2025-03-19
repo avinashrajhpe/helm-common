@@ -1,0 +1,7 @@
+{{- include "common.dbmigrate.job" . }}
+---
+{{- include "common.dbmigrate.configmap" . }}
+---
+{{- include "common.dbmigrate.role" . }}
+---
+{{- include "common.dbmigrate.rolebinding" . }}

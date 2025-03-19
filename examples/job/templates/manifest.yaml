@@ -1,0 +1,9 @@
+{{- include "common.job.job" . }}
+---
+{{- include "common.job.serviceaccount" . }}
+---
+{{- include "common.job.configmap" . }}
+---
+{{- include "common.job.role" . }}
+---
+{{- include "common.job.rolebinding" . }}

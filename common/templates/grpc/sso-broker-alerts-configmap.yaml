@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    rules: prom-rule
+  name: {{ .Chart.Name }}-alerts  
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    strategy.spinnaker.io/versioned: "false"
+data:
+  dsccservice-alerts.rules.yml: |
+{{ .Files.Get "alerts/dsccservice-alerts.yaml" | indent 4 -}}
