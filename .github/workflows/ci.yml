@@ -21,18 +21,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  compliance:
-    permissions: # required these permissions if you set the input `copyright_auto_fix: true`
-      contents: write
-      id-token: write
-      pull-requests: write
-    # for docs on configuring the secrets-scanner visit its repo https://github.com/hpe-actions/secrets-scanner/
-    # for docs on configuring the copyright tool visit its repo https://github.com/hpe-actions/copyright/
-    uses: hpe-cds/reusable-workflows/.github/workflows/ci-compliance.yml@main
-    secrets: inherit
-    with:
-       copyright_auto_fix: true
-
   package:
     runs-on: ubuntu-latest
     steps:
